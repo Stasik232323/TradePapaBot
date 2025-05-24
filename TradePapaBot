@@ -1,0 +1,69 @@
+import telebot
+import requests
+import pandas as pd
+import talib
+
+TOKEN = 8132753634:AAFIxoQPcUOpCGaxKl3KYqwA6-EMC7217JQ
+bot = telebot.TeleBot(TOKEN)
+
+# ==== НАСТРОЙКИ ====
+SYMBOL = 'EURUSDT'      # можно изменить на BTCUSDT, GBPUSDT и т.д.
+INTERVAL = '1m'
+CANDLE_LIMIT = 100
+
+# ==== ПОЛУЧЕНИЕ ДАННЫХ С BINANCE ====
+def get_candles(symbol=SYMBOL, interval=INTERVAL, limit=CANDLE_LIMIT):
+    url = 'https://api.binance.com/api/v3/klines'
+    params = {'symbol': symbol, 'interval': interval, 'limit': limit}
+    response = requests.get(url, params=params)
+    data = response.json()
+    df = pd.DataFrame(data, columns=[
+        'timestamp', 'open', 'high', 'low', 'close', 'volume',
+        'close_time', 'quote_asset_volume', 'trades',
+        'taker_buy_base', 'taker_buy_quote', 'ignore'
+    ])
+    df['close'] = df['close'].astype(float)
+    return df
+
+# ==== АНАЛИЗ РЫНКА ====
+def analyze_market(symbol=SYMBOL):
+    df = get_candles(symbol)
+    closes = df['close']
+
+    rsi = talib.RSI(closes, timeperiod=14)
+    upper, middle, lower = talib.BBANDS(closes, timeperiod=20)
+
+    last_price = closes.iloc[-1]
+    last_rsi = rsi.iloc[-1]
+    last_upper = upper.iloc[-1]
+    last_lower = lower.iloc[-1]
+
+    if last_rsi < 30 and last_price < last_lower:
+        signal = "🟢 Сигнал: Купить (1 минута)"
+    elif last_rsi > 70 and last_price > last_upper:
+        signal = "🔴 Сигнал: Продать (1 минута)"
+    else:
+        signal = "⏸ Сигнал: Пропустить"
+
+    return (
+        f"📊 Символ: {symbol}\n"
+        f"Цена: {last_price:.5f}\n"
+        f"RSI: {last_rsi:.2f}\n"
+        f"Bollinger Bands:\n"
+        f" ├ Верхняя: {last_upper:.5f}\n"
+        f" └ Нижняя: {last_lower:.5f}\n"
+        f"{signal}"
+    )
+
+# ==== ОБРАБОТЧИКИ TELEGRAM ====
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.send_message(message.chat.id, "Привет! Напиши /analyze для анализа по RSI и Bollinger Bands.")
+
+@bot.message_handler(commands=['analyze'])
+def analyze(message):
+    signal = analyze_market()
+    bot.send_message(message.chat.id, signal)
+
+# ==== ЗАПУСК ====
+bot.polling()
